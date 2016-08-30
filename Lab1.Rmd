@@ -1,0 +1,299 @@
+---
+title: 'Chapter 6, Lab 1: Subset Selection Methods'
+author: from 'An Introduction to Statistical Learning with Applications in R' by James
+  et al.
+date: "February 22, 2016"
+output: html_document
+keep_md: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<!-- ## R Markdown -->
+
+<!-- This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>. -->
+
+<!-- When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this: -->
+
+<!-- ```{r cars} -->
+<!-- summary(cars) -->
+<!-- ``` -->
+
+<!-- ## Including Plots -->
+
+<!-- You can also embed plots, for example: -->
+
+<!-- ```{r pressure, echo=FALSE} -->
+<!-- plot(pressure) -->
+<!-- ``` -->
+
+<!-- Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot. -->
+
+Let's have a look at some baseball data from the `Hitters` data set found in the `ISLR` package. First let's look at the first few players.
+
+```{r}
+# install.packages("ISLR")
+library(ISLR)
+attach(Hitters)
+# fix(Hitters)
+head(Hitters)
+```
+
+Let's see what variables we have to work with as well as how many variables and players are in the data set.
+```{r}
+names(Hitters)
+dim(Hitters)
+```
+We see that there are 20 variables and 322 players. Suppose that we want to predict `Salary` using the remaining 19 variables.
+
+Let's see how many players do not have a salary recorded in our data set.
+```{r}
+sum(is.na(Hitters$Salary))
+```
+There are 59 players without a listed salary. Let's remove those player from the analysis.
+```{r}
+Hitters=na.omit(Hitters)
+dim(Hitters)
+sum(is.na(Hitters))
+```
+Now we're left with $n=263$ players to use for our analysis.
+
+# Best Subset Selection (Regression)
+
+Now let's use the `leaps` package to fit best subset models. The `regsubsets()` function finds best subset models for each model size. By default, a sequence of the best models containing 1, 2, 3, ..., 8 variables are produced. The response is `Salary` and the predictors are chosen from the remaining $p=19$ variables.
+
+```{r}
+# install.packages("leaps")
+library(leaps)
+regfit.best=regsubsets(Salary~.,Hitters)
+```
+
+Now let's look at the results for best subset selection.
+```{r}
+summary(regfit.best)
+```
+Each line of the above results represents a best subset model, where a `"*"` denotes a variable that is included in the model at that particular model size.
+
+Note that sometimes variables that are in a model may be excluded from a larger model. Likewise, variables that are not contained in a smaller model may be added to a larger model. For example, `CRBI` is included in all best subset models of size 1 through 6 variables, but is excluded from the best model of size 7.
+
+If we want best subset models with 1, 2, 3, ..., 19 variables then we specify this inside the function using the option `nvmax=19`.
+```{r}
+regfit.full=regsubsets(Salary~.,data=Hitters,nvmax=19)
+```
+
+Let's have a look at each of the best subsets models with 1 (minimal model) through 19 (full model) variables.
+```{r}
+reg.summary=summary(regfit.full)
+reg.summary
+```
+
+Here are some statistics that will be used to evaluate each of our models.
+```{r}
+names(reg.summary)
+```
+
+For example, we can get the $R^{2}$ values for each of the best subsets models as follows.
+```{r}
+reg.summary$rsq
+```
+
+Often the term '*best* model' is used. In this sense, *best* is determined by statistics that **assess the model fit**. These statistics include $C_{p}$, $R_{adj}^{2}$, and $BIC$.
+ 
+Now let's plot $RSS$, $R_{adj}^{2}$, $C_{p}$ (an estimate of the prediction error), and $BIC$ to assess the fit of each of the 19 best subset models. The `which.min()` and `which.max` functions are used to find the model with the largest $R_{adj}^{2}$, smallest $C_{p}$, and smallest $BIC$ and those points are labelled in red.
+```{r}
+par(mfrow=c(2,2))
+plot(reg.summary$rss,xlab="Number of Variables",ylab="RSS",type="l")
+plot(reg.summary$adjr2,xlab="Number of Variables",ylab="Adjusted RSq",type="l")
+which.max(reg.summary$adjr2)
+points(11,reg.summary$adjr2[11], col="red",cex=2,pch=20)
+plot(reg.summary$cp,xlab="Number of Variables",ylab="Cp",type='l')
+which.min(reg.summary$cp)
+points(10,reg.summary$cp[10],col="red",cex=2,pch=20)
+plot(reg.summary$bic,xlab="Number of Variables",ylab="BIC",type='l')
+which.min(reg.summary$bic)
+points(6,reg.summary$bic[6],col="red",cex=2,pch=20)
+```
+
+Thus, the `regsubsets()` function tells us the following. According to $R_{adj}^{2}$, the best subset model contains 11 variables, according to $C_{p}$, the best subset model contains 10 variables, and according to $BIC$ the best subset model contains only 6 variables. $BIC$ suggests a more *parsimonious* model.
+
+Using the `regsubsets()` function we can generate plots that tell us which variables are included in the models suggested by each of the above statistics. A black square indicates that a variable is included in the model and a white square indicates that a variable is excluded from the model.
+```{r}
+plot(regfit.full,scale="r2")
+plot(regfit.full,scale="adjr2")
+plot(regfit.full,scale="Cp")
+plot(regfit.full,scale="bic")
+```
+
+Here are a few observations that can be made about the above plots.
+
+* the models with high $R^{2}$, low $C_{p}$, or low $BIC$ are quite stable
+* that is, as we add one more variable to our best subsets size, the variables included in or excluded from the model are relatively unchanged
+* large models have high $R^{2}$ as we would expect
+* poor models (high $C_{p}$) are either very large models, or very small models
+
+Let's look at coefficient estimates for the best subsets model of size 6. This is the *best* model chosen according to the $BIC$ statistic.
+```{r}
+coef(regfit.full,6)
+```
+
+Best subsets selection considers $2^{p}$ models that involve subsets of $p$ predictors. In the above example with $p=19$, this amounts to consideration of $2^{19}=524,288$ models. Now let's consider a more computationally efficient alternative to best subsets selection.
+
+# Forward and Backward Stepwise Selection
+
+In stepwise methods, each time a new variable is included into the model, it *stays* in the model. That is, stepwise selection methods produce a sequence of **nested models**. Each subsequent model contains one more variable than the previous model.
+
+In stepwise selection of $p$ predictors, there are $1 + p(p+1)/2$ possible models to choose from. With $p=19$ predictors this means that only $191$ models are to be considered, a far smaller search space as compared to best subsets selection.
+
+First, let's do a forward stepwise selection. Let's use the `regsubsets()` function and specify that we would like to run forward stepwise selection with the option of `method="forward"`. We will consider forwards stepwise selection models up to the full model with all 19 variables using the option `nvmax=19`.
+```{r}
+regfit.fwd=regsubsets(Salary~.,data=Hitters,nvmax=19,method="forward")
+```
+
+Now let's look at the results for each model fit with forward stepwise selection.
+```{r}
+summary(regfit.fwd)
+```
+
+We see that the sequence of models chosen by forward stepwise regression is nested. That is, once a variable is included in the model, it appears in all subsequent larger models. 
+
+We can assess the model fit with the $C_{p}$ statistic. Here's a plot of the best forward stepwise selection models as determined by $C_{p}$.
+```{r}
+plot(regfit.fwd,scale="Cp")
+```
+
+The plot looks very similar to the best subsets selection $C_{p}$ plot.
+
+Similarly, we can fit a sequence of models using backward stepwise selection. That is, we fit the model with all 19 variables, then fit all models with 18 variables and choose the best model with 18 variables, as the second model in the sequence of models, and so on.
+```{r}
+regfit.bwd=regsubsets(Salary~.,data=Hitters,nvmax=19,method="backward")
+```
+
+Now let's have a look at the results for backward stepwise selection.
+```{r}
+summary(regfit.bwd)
+```
+
+We can compare the coefficient estimates for the best 7-variable model chosen by the $BIC$ on the full model, and forward and backward stepwise selection.
+```{r}
+coef(regfit.full,7)
+coef(regfit.fwd,7)
+coef(regfit.bwd,7)
+```
+
+# Choosing Among Models
+
+## Model Selection by Validation
+
+To perform validation, let's first split the data into training and test data sets. We will split the data into two equal parts, so that 50% of the data is randomly assigned to the training set and 50% of the data is randomly assigned to the test set.
+```{r}
+set.seed(1)
+train=sample(c(TRUE,FALSE),nrow(Hitters),rep=TRUE)
+test=(!train)
+```
+
+Let's fit a best subsets model on the training set.
+```{r}
+regfit.best=regsubsets(Salary~.,data=Hitters[train,],nvmax=19)
+```
+
+Now let's find the validation errors on the on the test (validation) set. There are 19 variables and hence 19 subset models. The validation errors for each of these model are stored in `val.errors`. The design matrix will be for the test (validation) data set. This is stored in `test.mat`
+```{r}
+test.mat=model.matrix(Salary~.,data=Hitters[test,])
+val.errors=rep(NA,19)
+```
+
+Now we can find the prediction for each model, stored in `pred`. Then we can find the validation MSE and store them in `val.errors`.
+```{r}
+for(i in 1:19){
+   coefi=coef(regfit.best,id=i)
+   pred=test.mat[,names(coefi)]%*%coefi
+   val.errors[i]=mean((Hitters$Salary[test]-pred)^2)
+}
+```
+
+Let's plot the mean squared errors.
+```{r}
+plot(val.errors,ylab="MSE",pch=19,type='b')
+```
+
+Now let's get some more detail on the magnitude of the validation errors and find out which model size has the smallest validation error.
+```{r}
+val.errors
+which.min(val.errors)
+```
+Best subsets selection suggests that the model with 10 variables is the best model. Notice that the validation error (test error) plot does not have a simple pattern.
+
+Now let's have a look at the names and coefficients of those 10 variables.
+```{r}
+coef(regfit.best,10)
+```
+
+Let's write a function to use for prediction called `predict.regsubsets`.
+```{r}
+predict.regsubsets=function(object,newdata,id,...){
+  form=as.formula(object$call[[2]])
+  mat=model.matrix(form,newdata)
+  coefi=coef(object,id=id)
+  xvars=names(coefi)
+  mat[,xvars]%*%coefi
+}
+```
+
+Let's run a best subsets selection on the whole data set.
+```{r}
+regfit.best=regsubsets(Salary~.,data=Hitters,nvmax=19)
+```
+
+Here are the coefficients for the best subset model with 10 predictors.
+```{r}
+coef(regfit.best,10)
+```
+
+## Model Selection by Cross Validation
+
+Let's use 10-fold cross validation to select a model. First, a vector called `folds` is created. This vector allocates each player to one of the $k=10$ folds. The results are stored in the matrix `cv.errors`.
+```{r}
+k=10
+set.seed(1)
+# folds=sample(1:k,nrow(Hitters),replace=TRUE)
+folds=sample(rep(1:k,length=nrow(Hitters)))
+cv.errors=matrix(NA,k,19, dimnames=list(NULL, paste(1:19)))
+```
+
+Let's take a look at the number of players assigned to each fold.
+```{r}
+table(folds)
+```
+The assignment of the $n=263$ players to each fold is balanced.
+
+The following `for` loop performs cross validation. In the $j$-th fold, the elements of folds that equal `j` are in the test set, and the remainder are in the training set. We make our predictions for each model size (using our new `predict()` method), compute the test errors on the appropriate subset, and store them in the appropriate entry in the matrix `cv.errors`. This matrix will be of size $10 \times 19$ since there are 19 variables, and thus 19 subsets, and 10 rows for each of the 10 folds.
+```{r}
+for(j in 1:k){
+  best.fit=regsubsets(Salary~.,data=Hitters[folds!=j,],nvmax=19)
+  for(i in 1:19){
+    pred=predict(best.fit,Hitters[folds==j,],id=i)
+    cv.errors[j,i]=mean( (Hitters$Salary[folds==j]-pred)^2)
+    }
+  }
+```
+In the above, we fit the model on data from 9 of the folds and find the cross validation MSE on the remaining fold.
+
+We now have a $10 \times 19$ matrix, of which the $(i,j)$-th element corresponds to the test MSE for the $i$-th cross validation fold for the best $j$-variable model. We use the `apply()` function to average over the columns of this matrix in order to obtain a vector for which the $j$-th element is the cross validation error for the $j$-variable model.
+```{r}
+mean.cv.errors=apply(cv.errors,2,mean)
+mean.cv.errors
+```
+
+Now we can plot the 10-fold cross validation MSE as a function of model size.
+```{r}
+par(mfrow=c(1,1))
+plot(mean.cv.errors,pch=19,type='b')
+```
+
+Observe that cross validation selects an 11-variable model. Best subset selection is then performed on the full data set in order to obtain the 11-variable model.
+```{r}
+reg.best=regsubsets(Salary~.,data=Hitters, nvmax=19)
+coef(reg.best,11)
+```

@@ -1,0 +1,268 @@
+---
+title: 'Chapter 6, Lab 2: Ridge Regression and The Lasso'
+author: from 'An Introduction to Statistical Learning with Applications in R' by James
+  et al.
+date: "February 22, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Let's look at the `Hitters` data set found in the `ISLR` package.
+```{r}
+# install.packages("ISLR")
+library(ISLR)
+attach(Hitters)
+```
+
+Let's have a look at the number of players without a record for `Salary`.
+```{r}
+sum(is.na(Hitters$Salary))
+```
+There are 59 players without a listed salary. Let's remove those player from the analysis.
+
+```{r}
+Hitters=na.omit(Hitters)
+dim(Hitters)
+sum(is.na(Hitters))
+```
+Now the data is ready to be modelled.
+
+The `glmnet` package will be used to implement the shrinkage methods.
+Let's specify the predictor matrix `x` and response `y`.
+```{r}
+x=model.matrix(Salary~.,Hitters)[,-1]
+y=Hitters$Salary
+```
+
+```{r}
+# install.packages("glmnet")
+library(glmnet)
+```
+
+# Ridge Regression
+
+Ridge regression uses an $\ell_{2}$ norm regularizer. The penalized least squares criterion function to be minimized is given by $RSS + \lambda \sum_{j=1}^{p} \beta_{j}^{2}$, where $p$ is the number of predictors, and $\lambda>0$ is a tuning parameter.
+
+We need to specify two parameters to perform ridge regression using `glmnet`.
+
+* the parameter `alpha` controls the amount of shrinkage
+* for ridge, `alpha=0`, and for the lasso, `alpha=1`
+* the parameter `lambda` specifies the tuning parameter
+* we do not know in advance what particular value of `lambda` to use
+* so, we define a sequence of 100 values of `lambda` and fit a model for each value of `lambda`
+* this sequence is called `grid` and ranges from $0.01$ to $10^{10}$
+
+Let's generate a sequence of `lambda` and call it `grid`.
+```{r}
+grid=10^seq(10,-2,length=100)
+```
+
+Now let's fit models for each value of `lambda`.
+```{r}
+grid=10^seq(10,-2,length=100)
+ridge.mod=glmnet(x,y,alpha=0,lambda=grid)
+```
+The matrix of coefficent estimates has 20 rows (one for each predictor, plus an intercept) and 100 columns (one for each value of $\lambda$).
+```{r}
+dim(coef(ridge.mod))
+```
+
+Let's look at the **coefficient paths**. This is a plot of the coefficients, $\beta_{j}$, $j=1,\ldots,19$, versus ${\rm log}(\lambda)$.
+```{r}
+plot(ridge.mod,"lambda",TRUE)
+```
+
+Observe that
+
+* when ${\rm log}(\lambda) \approx 12$ (equivalently, $\lambda \approx 162,755$), all of the coefficient estimates are **shrunken toward zero**
+
+* compare this to the subset and stepwise selection methods which control the model complexity by restricting to $d<p$ variables
+
+* when $\lambda =0$ at the left hand side of the plot, the coefficient estimates for full least squares are obtained
+
+Let's have a look at a specific model. That is, fix a value of $\lambda$ and fit a linear model using ridge regression. Let's look at the model corresponding to `grid[50]`, or equivalently, $\lambda=11,497.57$.
+```{r}
+ridge.mod$lambda[50]
+coef(ridge.mod)[,50]
+sqrt(sum(coef(ridge.mod)[-1,50]^2))
+```
+The value of $\lambda=11,497.57$ is relatively large. The coefficients are highly shrunken towards zero.
+
+Now let's look at the model corresponding to `grid[60]`, or equivalently, $\lambda=705.48$. These coefficients are larger than those above.
+```{r}
+ridge.mod$lambda[60]
+coef(ridge.mod)[,60]
+sqrt(sum(coef(ridge.mod)[-1,60]^2))
+```
+Observe that decreasing the tuning parameter lessens the influence of the penalty in the overall minimization of the RSS and shrinkage penalty. This gives larger coefficient estimates.
+
+We can obtain the ridge regression coefficient estimates for any value of the tuning parameter using the `predict` function. For the instance $\lambda=50$ we get the following.
+```{r}
+predict(ridge.mod,s=50,type="coefficients")[1:20,]
+```
+
+Let's split the data into test and training data sets. We can use these sets to estimate the test error of a model.
+```{r}
+set.seed(1)
+train=sample(1:nrow(x), nrow(x)/2)
+test=(-train)
+y.test=y[test]
+```
+
+We can fit a ridge regression model on the training set as follows.
+```{r}
+ridge.mod=glmnet(x[train,],y[train],alpha=0,lambda=grid, thresh=1e-12)
+```
+
+Now let's find the test MSE with a tuning parameter of $\lambda=4$
+```{r}
+ridge.pred=predict(ridge.mod,s=4,newx=x[test,])
+mean((ridge.pred-y.test)^2)
+```
+The test MSE for ridge regression with $\lambda=4$ is $101,037$.
+
+If we had simply fit a model with just an intercept, we would have predicted each test observation using the mean of the training observations. In that case the MSE is given by the following.
+```{r}
+mean((mean(y[train])-y.test)^2)
+```
+
+<!-- Equivalently, we could just use a large value of $\lambda$. -->
+<!-- ```{r} -->
+<!-- ridge.pred=predict(ridge.mod,s=1e10,newx=x[test ,]) mean((ridge.pred-y.test)^2) -->
+<!-- ``` -->
+
+We see that fitting a model with $\lambda=4$ gives a lower test MSE than a model that included only the intercept.
+
+Let's now compare ridge regression with $\lambda=4$ and full least squares. Use the `exact=T` option to fit full least squares. This corresponds to $\lambda=0$.
+```{r}
+ridge.pred=predict(ridge.mod,s=0,newx=x[test,],exact=T)
+mean((ridge.pred-y.test)^2)
+```
+The test MSE for full least squares is $114,783$.
+
+The linear model using unpenalized least squares can be fit as follows.
+```{r}
+lm(y~x, subset=train)
+```
+
+Comparing this with the ridge regression model with $\lambda=0$ gives us the same coefficient estimates, as expected.
+```{r}
+predict(ridge.mod,s=0,exact=T,type="coefficients")[1:20,]
+```
+
+Above, we arbitrarily chose $\lambda=4$. A more systematic way to choose the tuning parameter would be to use **cross validation**. We can use the `cv.glmnet` function implements 10-fold cross validation. Let's apply this to the ridge regression model.
+```{r}
+set.seed(1)
+cv.out=cv.glmnet(x[train,],y[train],alpha=0)
+```
+
+Let's plot the cross validation MSE for each model.
+```{r}
+plot(cv.out)
+```
+
+Observe that
+
+* for ${\rm log}(\lambda) \approx 12$ the error is large since the coefficient estimates are too small
+
+* for small values of $\lambda$, the error is the smallest
+
+* in other words, the full model has the smallest cross validation error
+
+* the model corresponding to ${\rm log}(\lambda) \approx 7.9$ is within 1 standard error of the minimum 
+
+* this regularized model gives a smaller model and has practically the same error as the full model which has smallest error and may be preferred
+
+* the labels at the top of the plot show that 19 variables are in every model fitted
+
+The value of $\lambda$ that gives the smallest cross validation error can be found as follows.
+```{r}
+bestlam=cv.out$lambda.min
+bestlam
+```
+Therefore $\lambda=212$ gives that smallest cross validation error. The MSE for the ridge regression model with $\lambda=212$ can be found as follows.
+```{r}
+ridge.pred=predict(ridge.mod,s=bestlam,newx=x[test,])
+mean((ridge.pred-y.test)^2)
+```
+The test MSE for ridge regression with $\lambda=212$ is $96,016$.
+
+Thus, by choosing $\lambda$ carefully, we have a better bit (smaller MSE) than the full least squares fit and the ridge regression fit an arbitrary value of $\lambda$.
+
+Finally, we may refit our ridge regression model on the full data set using the value of $\lambda$ chosen by cross validation. The coefficient estimates are as follows.
+```{r}
+out=glmnet(x,y,alpha=0)
+predict(out,type="coefficients",s=bestlam)[1:20,]
+```
+As expected, none on the coefficients are zero. **Ridge regression does not perform variable selection**.
+
+# The Lasso
+
+The lasso uses an $\ell_{1}$ norm regularizer. The penalized least squares criterion function to be minimized is given by $RSS + \lambda \sum_{j=1}^{p} |\beta_{j}|$, where $p$ is the number of predictors, and $\lambda>0$ is a tuning parameter.
+
+As a result, we can expect some of the variables to have **zero** coefficient estimates depending on the value of $\lambda$ chosen. This may give us a more interpretable model. It may also give us a more accurate model.
+
+Let's fit a model on the training data with the lasso.
+```{r}
+lasso.mod=glmnet(x[train,],y[train],alpha=1,lambda=grid)
+```
+
+Let's have a look at the coefficient paths as a function of the $\ell_{1}$ norm.
+```{r}
+plot(lasso.mod)
+```
+
+Observe that
+
+* initially, all the coefficient estimates are zero (large $\lambda$)
+
+* as $\lambda$ decreases, more and more variables get included into the model
+
+* the labels at the top of the plot show the number of variables included in the model
+
+* it is clear from this example that lasso both **shrinks** coefficients and **selects** variables for the model
+
+Let's now use the `cv.glmnet` function to do cross validation. We'll use this to pick the tuning parameter $\lambda$.
+```{r}
+set.seed(1)
+cv.out=cv.glmnet(x[train,],y[train],alpha=1)
+```
+
+The following plot shows the cross validation MSE as a function of ${\rm log}(\lambda)$.
+```{r}
+plot(cv.out)
+```
+
+We see that the model with the smallest cross validation error is of size 8. There is also a smaller model with only 4 variables which has a cross validation with 1 standard error of the minimum.
+
+Let's use the model with the smallest cross validation MSE to pick $\lambda$ and then use this a model with this value of $\lambda$ to see how we do on the test data set using the `predict` function.
+```{r}
+bestlam=cv.out$lambda.min
+lasso.pred=predict(lasso.mod,s=bestlam,newx=x[test,])
+```
+
+We can calculate the prediction error as follows.
+```{r}
+mean((lasso.pred-y.test)^2)
+```
+
+Now let's fit a model on the entire data set with the lasso using the best value of $\lambda$ as chosen according to cross validation.
+```{r}
+out=glmnet(x,y,alpha=1,lambda=grid)
+lasso.coef=predict(out,type="coefficients",s=bestlam)[1:20,]
+```
+
+Here are the coefficients of the model with the lowest cross validation MSE.
+```{r}
+lasso.coef
+```
+
+We can see which coefficients are nonzero as follows.
+```{r}
+lasso.coef[lasso.coef!=0]
+```
+
+Using the lasso, only 7 variables have nonzero coefficients. Unlike ridge regression, the coefficient estimates of the lasso are **sparse**. Here 12 of the 19 coefficient estimates are **exactly zero**. The lasso performs both **shrinkage** of coefficient estimates and variable **selection**.
